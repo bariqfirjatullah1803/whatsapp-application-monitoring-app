@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useState } from "react"
+
 import {
   MessageCircle,
   RefreshCcw,
@@ -17,6 +19,8 @@ import {
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { connectSocket, disconnectSocket, getSocket } from "@/services/socket"
+import { useSocketConnection } from "@/hooks/useSocketConnection"
 
 type StepItemProps = {
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
@@ -49,50 +53,140 @@ const TipItem = ({ icon: Icon, label }: TipItemProps) => (
 )
 
 export const ScanQrPage = () => {
-  const steps: StepItemProps[] = [
-    {
-      icon: Smartphone,
-      title: "Buka WhatsApp di ponsel",
-      description:
-        "Masuk ke aplikasi WhatsApp lalu pilih menu Opsi ••• atau Pengaturan, sesuai dengan perangkat yang digunakan.",
-    },
-    {
-      icon: MessageCircle,
-      title: "Masuk ke menu Perangkat Tertaut",
-      description:
-        "Pilih Perangkat Tertaut dan ketuk tombol Tautkan perangkat untuk membuka pemindai QR.",
-    },
-    {
-      icon: ScanIcon,
-      title: "Arahkan kamera ke layar",
-      description:
-        "Arahkan kamera ponsel ke kode QR di layar ini sampai status berubah menandakan koneksi berhasil.",
-    },
-  ]
+  const socket = useMemo(() => getSocket(), [])
+  const [qrCode, setQrCode] = useState<string | null>(null)
+  const [status, setStatus] = useState<
+    "idle" | "awaiting" | "ready" | "authenticated" | "error" | "disconnected"
+  >("idle")
+  const [statusMessage, setStatusMessage] = useState("Menunggu pemindaian")
+  const connection = useSocketConnection()
 
-  const tips: TipItemProps[] = [
-    {
-      icon: ShieldCheck,
-      label:
-        "Setelah berhasil, sesi lama akan otomatis keluar demi keamanan akun Anda.",
-    },
-    {
-      icon: Wifi,
-      label: "Gunakan koneksi internet yang stabil agar proses penautan cepat.",
-    },
-    {
-      icon: ScanIcon,
-      label: "Pastikan area layar dan kamera memiliki pencahayaan yang cukup.",
-    },
-  ]
+  useEffect(() => {
+    if (connection.status === "ready") {
+      setStatus("ready")
+      setStatusMessage("WhatsApp connected successfully!")
+    } else if (connection.status === "authenticated") {
+      setStatus("authenticated")
+      setStatusMessage("Perangkat terhubung. Menunggu sinkronisasi...")
+    } else if (connection.status === "awaiting-qr") {
+      setStatus("awaiting")
+      setStatusMessage("Pindai kode menggunakan aplikasi WhatsApp Anda.")
+    } else if (connection.status === "disconnected") {
+      setStatus("disconnected")
+      setStatusMessage(`Terputus: ${connection.lastError ?? "Koneksi terhenti"}`)
+      setQrCode(null)
+    } else if (connection.status === "error") {
+      setStatus("error")
+      setStatusMessage(`Terjadi kesalahan: ${connection.lastError ?? "Tidak diketahui"}`)
+    }
+  }, [connection.status, connection.lastError])
+
+  useEffect(() => {
+    connectSocket()
+
+    const handleQr = (qr: string) => {
+      setQrCode(qr)
+      setStatus("awaiting")
+      setStatusMessage("Pindai kode menggunakan aplikasi WhatsApp Anda.")
+    }
+
+    const handleReady = (payload: { message: string }) => {
+      setStatus("ready")
+      setStatusMessage(payload.message)
+    }
+
+    const handleAuthenticated = () => {
+      setStatus("authenticated")
+      setStatusMessage("Perangkat terhubung. Menunggu sinkronisasi...")
+    }
+
+    const handleAuthFailure = (message: string) => {
+      setStatus("error")
+      setStatusMessage(`Gagal autentikasi: ${message}`)
+    }
+
+    const handleDisconnected = (reason: string) => {
+      setStatus("disconnected")
+      setStatusMessage(`Terputus: ${reason}`)
+      setQrCode(null)
+    }
+
+    const handleError = (payload: { message: string }) => {
+      setStatus("error")
+      setStatusMessage(`Terjadi kesalahan: ${payload.message}`)
+    }
+
+    socket.on("qr", handleQr)
+    socket.on("ready", handleReady)
+    socket.on("authenticated", handleAuthenticated)
+    socket.on("auth_failure", handleAuthFailure)
+    socket.on("disconnected", handleDisconnected)
+    socket.on("error", handleError)
+
+    return () => {
+      socket.off("qr", handleQr)
+      socket.off("ready", handleReady)
+      socket.off("authenticated", handleAuthenticated)
+      socket.off("auth_failure", handleAuthFailure)
+      socket.off("disconnected", handleDisconnected)
+      socket.off("error", handleError)
+      disconnectSocket()
+    }
+  }, [socket])
+
+  const steps = useMemo<StepItemProps[]>(
+    () => [
+      {
+        icon: Smartphone,
+        title: "Buka WhatsApp di ponsel",
+        description:
+          "Masuk ke aplikasi WhatsApp lalu pilih menu Opsi ••• atau Pengaturan, sesuai dengan perangkat yang digunakan.",
+      },
+      {
+        icon: MessageCircle,
+        title: "Masuk ke menu Perangkat Tertaut",
+        description:
+          "Pilih Perangkat Tertaut dan ketuk tombol Tautkan perangkat untuk membuka pemindai QR.",
+      },
+      {
+        icon: ScanIcon,
+        title: "Arahkan kamera ke layar",
+        description:
+          "Arahkan kamera ponsel ke kode QR di layar ini sampai status berubah menandakan koneksi berhasil.",
+      },
+    ],
+    []
+  )
+
+  const tips = useMemo<TipItemProps[]>(
+    () => [
+      {
+        icon: ShieldCheck,
+        label:
+          "Setelah berhasil, sesi lama akan otomatis keluar demi keamanan akun Anda.",
+      },
+      {
+        icon: Wifi,
+        label: "Gunakan koneksi internet yang stabil agar proses penautan cepat.",
+      },
+      {
+        icon: ScanIcon,
+        label: "Pastikan area layar dan kamera memiliki pencahayaan yang cukup.",
+      },
+    ],
+    []
+  )
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/40 py-10 sm:py-16">
+    <main className="min-h-screen bg-linear-to-br from-background via-background to-muted/40 py-10 sm:py-16">
       <section className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6">
         <header className="mx-auto max-w-3xl text-center">
-          <Badge variant="outline" className="mb-3 gap-2 border-primary/60 text-primary">
+          <Badge
+            variant={status === "error" ? "destructive" : "outline"}
+            className="mb-3 gap-2 border-primary/60 text-primary"
+          >
             <ScanIcon className="size-4" aria-hidden />
-            Menunggu pemindaian
+            {statusMessage}
           </Badge>
           <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
             Pindai Kode QR WhatsApp
@@ -138,18 +232,36 @@ export const ScanQrPage = () => {
             <aside className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-border bg-muted/40 p-6 text-center">
               <h3 className="text-lg font-semibold">Kode QR siap dipindai</h3>
               <p className="text-sm text-muted-foreground">
-                Arahkan kamera ponsel ke kode QR di sebelah kanan untuk menautkan perangkat.
+                {status === "ready"
+                  ? "Perangkat sudah terhubung. Anda dapat mulai menggunakan dashboard."
+                  : "Arahkan kamera ponsel ke kode QR di sebelah kanan untuk menautkan perangkat."}
               </p>
 
-              <div className="relative flex aspect-square w-full max-w-xs items-center justify-center rounded-2xl border-2 border-dashed border-border bg-background shadow-inner">
-                <span className="text-xs font-semibold tracking-[0.3em] text-muted-foreground">
-                  QR CODE
-                </span>
-              </div>
+              {qrCode ? (
+                <div className="relative flex aspect-square w-full max-w-xs items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-border bg-background shadow-inner">
+                  <img src={qrCode} alt="QR Code WhatsApp" className="h-full w-full object-contain" />
+                </div>
+              ) : (
+                <div className="relative flex aspect-square w-full max-w-xs items-center justify-center rounded-2xl border-2 border-dashed border-border bg-background shadow-inner">
+                  <span className="text-xs font-semibold tracking-[0.3em] text-muted-foreground">
+                    QR CODE
+                  </span>
+                </div>
+              )}
 
-              <Button type="button" variant="outline" className="w-full max-w-xs" disabled>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full max-w-xs"
+                onClick={() => {
+                  if (status !== "ready" && status !== "authenticated") {
+                    connectSocket()
+                  }
+                }}
+                disabled={status === "ready" || status === "authenticated"}
+              >
                 <RefreshCcw className="size-4" aria-hidden />
-                Perbarui kode
+                {status === "ready" || status === "authenticated" ? "Terhubung" : "Perbarui kode"}
               </Button>
 
               <div className="flex items-start gap-2 rounded-lg bg-secondary/70 px-4 py-3 text-left text-xs text-secondary-foreground sm:text-sm">
