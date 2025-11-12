@@ -1,24 +1,39 @@
-import { SocketConnectionProvider } from "@/contexts/SocketConnectionContext"
-import { useSocketConnection } from "@/hooks/useSocketConnection"
-import { ChatPage } from "@/pages/ChatPage"
-import { ScanQrPage } from "@/pages/ScanQrPage"
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { LoginPage } from '@/pages/Login';
+import { RegisterPage } from '@/pages/Register';
+import { DashboardPage } from '@/pages/Dashboard';
 
-const AppContent = () => {
-  const { status } = useSocketConnection()
+function PrivateRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth();
 
-  if (status === "ready" || status === "authenticated") {
-    return <ChatPage />
+  if (isLoading) {
+    return <div>Loading...</div>;
   }
 
-  return <ScanQrPage />
+  return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
 }
 
-const App = () => {
+function App() {
   return (
-    <SocketConnectionProvider>
-      <AppContent />
-    </SocketConnectionProvider>
-  )
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route
+            path="/dashboard"
+            element={
+              <PrivateRoute>
+                <DashboardPage />
+              </PrivateRoute>
+            }
+          />
+          <Route path="/" element={<Navigate to="/dashboard" />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
+  );
 }
 
-export default App
+export default App;
