@@ -53,6 +53,7 @@ export interface MessageHistory {
 
 // Socket events
 export interface IncomingMessage {
+  messageId?: string;
   from: string;
   number: string;
   body: string;

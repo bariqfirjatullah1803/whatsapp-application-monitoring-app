@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
-import { socketClient } from '@/lib/socket';
-import { api } from '@/lib/api';
-import type { Message, IncomingMessage } from '@/lib/types';
+import { useState, useEffect, useCallback } from "react";
+import { socketClient } from "@/lib/socket";
+import { api } from "@/lib/api";
+import type { Message, IncomingMessage, MessageSentResponse } from "@/lib/types";
 
 export function useMessages(chatId: string | null) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -15,10 +15,11 @@ export function useMessages(chatId: string | null) {
     setIsLoading(true);
     try {
       const data = await api.getMessageHistory(chatId);
+      console.log("[LOAD MESSAGES]");
       setMessages(data.messages);
       setHasMore(data.hasMore);
     } catch (error) {
-      console.error('Error loading messages:', error);
+      console.error("Error loading messages:", error);
     } finally {
       setIsLoading(false);
     }
@@ -26,6 +27,7 @@ export function useMessages(chatId: string | null) {
 
   // Load more messages
   const loadMore = useCallback(async () => {
+    console.log("[LOAD MORE MESSAGES]");
     if (!chatId || !hasMore || isLoading) return;
 
     const oldestMessage = messages[0];
@@ -38,10 +40,15 @@ export function useMessages(chatId: string | null) {
         50,
         oldestMessage.timestamp.toString()
       );
-      setMessages((prev) => [...data.messages, ...prev]);
+      // Deduplication: filter out messages that already exist
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const newMessages = data.messages.filter((m) => !existingIds.has(m.id));
+        return [...newMessages, ...prev];
+      });
       setHasMore(data.hasMore);
     } catch (error) {
-      console.error('Error loading more messages:', error);
+      console.error("Error loading more messages:", error);
     } finally {
       setIsLoading(false);
     }
@@ -49,12 +56,17 @@ export function useMessages(chatId: string | null) {
 
   // Listen for new messages
   useEffect(() => {
-    const handleNewMessage = (msg: IncomingMessage) => {
+    const handleNewMessage = (...args: unknown[]) => {
+      const msg = args[0] as IncomingMessage;
+      console.log("[NEW MESSAGE]");
       // Only add if it's for current chat
       if (chatId && msg.number === chatId) {
+        // Use messageId if available, otherwise generate unique ID
+        const messageId = msg.messageId || `${msg.timestamp}-${Math.random().toString(36).substr(2, 9)}`;
+        
         const newMessage: Message = {
-          id: `${Date.now()}`,
-          direction: 'incoming',
+          id: messageId,
+          direction: "incoming",
           from: msg.from,
           to: msg.number,
           body: msg.body,
@@ -63,32 +75,53 @@ export function useMessages(chatId: string | null) {
           chatName: msg.chatName,
           contactName: msg.from,
         };
-        setMessages((prev) => [...prev, newMessage]);
+        
+        // Deduplication: check if message already exists
+        setMessages((prev) => {
+          const exists = prev.some((m) => m.id === messageId);
+          if (exists) {
+            console.log("[DUPLICATE MESSAGE] Skipping duplicate message:", messageId);
+            return prev;
+          }
+          return [...prev, newMessage];
+        });
       }
     };
 
-    const handleMessageSent = (response: any) => {
+    const handleMessageSent = (...args: unknown[]) => {
+      const response = args[0] as MessageSentResponse;
       // Add sent message to list
-      if (chatId && response.to === chatId.replace('@c.us', '')) {
+      if (chatId && response.to === chatId.replace("@c.us", "")) {
+        const messageId = response.messageId || `sent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
         const newMessage: Message = {
-          id: response.messageId,
-          direction: 'outgoing',
-          from: 'me',
+          id: messageId,
+          direction: "outgoing",
+          from: "me",
           to: response.to,
           body: response.message,
           timestamp: new Date(),
           isGroup: false,
         };
-        setMessages((prev) => [...prev, newMessage]);
+        
+        // Deduplication: check if message already exists
+        setMessages((prev) => {
+          const exists = prev.some((m) => m.id === messageId);
+          if (exists) {
+            console.log("[DUPLICATE MESSAGE] Skipping duplicate message:", messageId);
+            return prev;
+          }
+          return [...prev, newMessage];
+        });
       }
     };
 
-    socketClient.on('message', handleNewMessage);
-    socketClient.on('messageSent', handleMessageSent);
+    socketClient.on("message", handleNewMessage);
+    socketClient.on("messageSent", handleMessageSent);
 
     return () => {
-      socketClient.off('message', handleNewMessage);
-      socketClient.off('messageSent', handleMessageSent);
+      socketClient.off("message", handleNewMessage);
+      socketClient.off("messageSent", handleMessageSent);
     };
   }, [chatId]);
 
@@ -109,4 +142,3 @@ export function useMessages(chatId: string | null) {
     reload: loadMessages,
   };
 }
-
