@@ -14,6 +14,54 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
 }
 
+// Route untuk customer_service (chat dashboard)
+function CustomerServiceRoute({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
+
+  // Admin dan leader redirect ke users
+  if (user?.role === 'admin' || user?.role === 'leader') {
+    return <Navigate to="/users" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+// Route untuk admin dan leader (user management)
+function AdminLeaderRoute({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
+
+  // Customer service redirect ke dashboard
+  if (user?.role === 'customer_service') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+// Redirect berdasarkan role setelah login
+function HomeRedirect() {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
+
+  // Admin dan leader ke users, customer_service ke dashboard
+  if (user?.role === 'admin' || user?.role === 'leader') {
+    return <Navigate to="/users" replace />;
+  }
+
+  return <Navigate to="/dashboard" replace />;
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -24,7 +72,9 @@ function App() {
             path="/dashboard"
             element={
               <PrivateRoute>
-                <DashboardPage />
+                <CustomerServiceRoute>
+                  <DashboardPage />
+                </CustomerServiceRoute>
               </PrivateRoute>
             }
           />
@@ -32,11 +82,13 @@ function App() {
             path="/users"
             element={
               <PrivateRoute>
-                <UsersPage />
+                <AdminLeaderRoute>
+                  <UsersPage />
+                </AdminLeaderRoute>
               </PrivateRoute>
             }
           />
-          <Route path="/" element={<Navigate to="/dashboard" />} />
+          <Route path="/" element={<PrivateRoute><HomeRedirect /></PrivateRoute>} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

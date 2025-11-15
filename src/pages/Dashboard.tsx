@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   EllipsisVertical,
   FileText,
@@ -11,7 +11,6 @@ import {
   Video,
   LogOut,
   RefreshCw,
-  Users,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useWhatsApp } from "@/hooks/useWhatsApp";
@@ -153,9 +152,6 @@ export function DashboardPage() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
 
-  const isAdmin = user?.role === 'admin';
-  const isLeader = user?.role === 'leader';
-  const canManageUsers = isAdmin || isLeader;
 
   const { qrCode, isReady, isConnected, chats, error, sendMessage, getChats } =
     useWhatsApp();
@@ -222,17 +218,6 @@ export function DashboardPage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel>Aksi</DropdownMenuLabel>
-                  {canManageUsers && (
-                    <>
-                      <DropdownMenuItem asChild>
-                        <Link to="/users" className="flex items-center">
-                          <Users className="mr-2 size-4" aria-hidden />
-                          Manajemen User
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                    </>
-                  )}
                   <DropdownMenuItem>
                     <Plus className="mr-2 size-4" aria-hidden />
                     Percakapan baru
