@@ -94,8 +94,35 @@ export interface Statistics {
 }
 
 // User Management
+export interface PaginationInfo {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface UsersFilters {
+  search: string | null;
+  role: string | null;
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+}
+
 export interface UsersResponse {
   users: UserWithRole[];
+  pagination: PaginationInfo;
+  filters: UsersFilters;
+}
+
+export interface GetUsersParams {
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  search?: string;
+  role?: string;
 }
 
 export interface UpdateUserRoleRequest {

@@ -1,7 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
+import {
+  useReactTable,
+  getCoreRowModel,
+  type ColumnDef,
+  type SortingState,
+  type PaginationState,
+  flexRender,
+} from '@tanstack/react-table';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
-import type { UserWithRole, UserRole, RegisterCredentials } from '@/lib/types';
+import type { UserWithRole, UserRole, RegisterCredentials, PaginationInfo } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -32,7 +40,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Plus, Edit, Loader2 } from 'lucide-react';
+import { Plus, Edit, Loader2, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 
 const roleLabels: Record<UserRole, string> = {
@@ -55,6 +63,14 @@ export function UserManagement() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserWithRole | null>(null);
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 10,
+  });
+  const [globalFilter, setGlobalFilter] = useState('');
+  const [paginationInfo, setPaginationInfo] = useState<PaginationInfo | null>(null);
+  const [searchDebounce, setSearchDebounce] = useState('');
 
   // Form state untuk create
   const [createForm, setCreateForm] = useState<RegisterCredentials>({
@@ -75,27 +91,63 @@ export function UserManagement() {
   const isLeader = currentUser?.role === 'leader';
   const canManageUsers = isAdmin || isLeader;
 
-  // Hanya admin dan leader yang bisa akses
-  if (!canManageUsers) {
-    return null;
-  }
-
   const loadUsers = async () => {
     try {
       setIsLoading(true);
       setError('');
-      const response = await api.getUsers();
+
+      // Get current sorting
+      const sortBy = sorting[0]?.id || 'createdAt';
+      const sortOrder = sorting[0]?.desc ? 'desc' : 'asc';
+
+      // Get current page (pageIndex is 0-based, backend uses 1-based)
+      const page = pagination.pageIndex + 1;
+      const pageSize = pagination.pageSize;
+
+      const response = await api.getUsers({
+        page,
+        pageSize,
+        sortBy,
+        sortOrder,
+        search: searchDebounce || undefined,
+      });
+
       setUsers(response.users);
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Gagal memuat daftar user');
+      setPaginationInfo(response.pagination);
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setError(error.response?.data?.error || 'Gagal memuat daftar user');
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Debounce search untuk mengurangi request
   useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setSearchDebounce(globalFilter);
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [globalFilter]);
+
+  // Effect untuk load users saat pagination, sorting, atau search berubah
+  useEffect(() => {
+    if (!canManageUsers) return;
     loadUsers();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canManageUsers, pagination.pageIndex, pagination.pageSize, sorting, searchDebounce]);
+
+  // Reset ke page 1 saat search berubah
+  useEffect(() => {
+    if (globalFilter !== searchDebounce) return; // Tunggu sampai debounce selesai
+    setPagination((prev) => {
+      if (prev.pageIndex !== 0) {
+        return { ...prev, pageIndex: 0 };
+      }
+      return prev;
+    });
+  }, [globalFilter, searchDebounce]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,8 +165,9 @@ export function UserManagement() {
       setIsCreateDialogOpen(false);
       setCreateForm({ name: '', email: '', password: '', role: 'customer_service' });
       await loadUsers();
-    } catch (err: any) {
-      setCreateError(err.response?.data?.error || 'Gagal membuat user');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setCreateError(error.response?.data?.error || 'Gagal membuat user');
     } finally {
       setIsCreating(false);
     }
@@ -130,8 +183,9 @@ export function UserManagement() {
       setIsEditDialogOpen(false);
       setSelectedUser(null);
       await loadUsers();
-    } catch (err: any) {
-      setUpdateError(err.response?.data?.error || 'Gagal mengupdate role');
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
+      setUpdateError(error.response?.data?.error || 'Gagal mengupdate role');
     } finally {
       setIsUpdating(false);
     }
@@ -151,6 +205,139 @@ export function UserManagement() {
     // Leader hanya bisa create customer_service
     return ['customer_service'] as UserRole[];
   }, [isAdmin]);
+
+  // Kolom definisi untuk datatable
+  const columns = useMemo<ColumnDef<UserWithRole>[]>(
+    () => [
+      {
+        accessorKey: 'name',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+              className="h-8 px-2 lg:px-3"
+            >
+              Nama
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+            </Button>
+          );
+        },
+        cell: ({ row }) => <div className="font-medium">{row.getValue('name')}</div>,
+      },
+      {
+        accessorKey: 'email',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+              className="h-8 px-2 lg:px-3"
+            >
+              Email
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+            </Button>
+          );
+        },
+        cell: ({ row }) => <div>{row.getValue('email')}</div>,
+      },
+      {
+        accessorKey: 'role',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+              className="h-8 px-2 lg:px-3"
+            >
+              Role
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+            </Button>
+          );
+        },
+        cell: ({ row }) => {
+          const role = row.getValue('role') as UserRole;
+          return (
+            <Badge variant="outline" className={roleColors[role]}>
+              {roleLabels[role]}
+            </Badge>
+          );
+        },
+        filterFn: (row, id, value) => {
+          return value.includes(row.getValue(id));
+        },
+      },
+      {
+        accessorKey: 'createdAt',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+              className="h-8 px-2 lg:px-3"
+            >
+              Tanggal Dibuat
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+            </Button>
+          );
+        },
+        cell: ({ row }) => {
+          const date = row.getValue('createdAt') as string;
+          return date ? format(new Date(date), 'dd MMM yyyy, HH:mm') : '-';
+        },
+      },
+      ...(isAdmin
+        ? [
+            {
+              id: 'actions',
+              header: () => <div className="text-right">Aksi</div>,
+              cell: ({ row }: { row: { original: UserWithRole } }) => {
+                const user = row.original;
+                return (
+                  <div className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openEditDialog(user)}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  </div>
+                );
+              },
+            },
+          ]
+        : []),
+    ],
+    [isAdmin]
+  );
+
+  const table = useReactTable({
+    data: users,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    manualSorting: true,
+    pageCount: paginationInfo ? paginationInfo.totalPages : 0,
+    onSortingChange: setSorting,
+    onPaginationChange: setPagination,
+    state: {
+      sorting,
+      pagination,
+    },
+    initialState: {
+      pagination: {
+        pageIndex: 0,
+        pageSize: 10,
+      },
+    },
+  });
+
+  // Hanya admin dan leader yang bisa akses
+  if (!canManageUsers) {
+    return null;
+  }
 
   return (
     <Card>
@@ -257,60 +444,95 @@ export function UserManagement() {
           </Alert>
         )}
 
+        {/* Search Input */}
+        <div className="mb-4">
+          <Input
+            placeholder="Cari user (nama, email, role)..."
+            value={globalFilter ?? ''}
+            onChange={(e) => setGlobalFilter(e.target.value)}
+            className="max-w-sm"
+          />
+        </div>
+
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nama</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Tanggal Dibuat</TableHead>
-                  {isAdmin && <TableHead className="text-right">Aksi</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={isAdmin ? 5 : 4} className="h-24 text-center">
-                      Tidak ada user
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  users.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell className="font-medium">{user.name}</TableCell>
-                      <TableCell>{user.email}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={roleColors[user.role]}>
-                          {roleLabels[user.role]}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {user.createdAt
-                          ? format(new Date(user.createdAt), 'dd MMM yyyy, HH:mm')
-                          : '-'}
-                      </TableCell>
-                      {isAdmin && (
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditDialog(user)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      )}
+          <div className="space-y-4">
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TableHead key={header.id}>
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(header.column.columnDef.header, header.getContext())}
+                        </TableHead>
+                      ))}
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {table.getRowModel().rows?.length ? (
+                    table.getRowModel().rows.map((row) => (
+                      <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
+                        {row.getVisibleCells().map((cell) => (
+                          <TableCell key={cell.id}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={columns.length} className="h-24 text-center">
+                        Tidak ada user ditemukan.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Pagination */}
+            {paginationInfo && (
+              <div className="flex items-center justify-between px-2">
+                <div className="flex-1 text-sm text-muted-foreground">
+                  Menampilkan {((paginationInfo.page - 1) * paginationInfo.pageSize) + 1} sampai{' '}
+                  {Math.min(
+                    paginationInfo.page * paginationInfo.pageSize,
+                    paginationInfo.total
+                  )}{' '}
+                  dari {paginationInfo.total} user
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => table.previousPage()}
+                    disabled={!paginationInfo.hasPreviousPage}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">
+                      Halaman {paginationInfo.page} dari {paginationInfo.totalPages}
+                    </span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => table.nextPage()}
+                    disabled={!paginationInfo.hasNextPage}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

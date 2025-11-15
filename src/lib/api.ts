@@ -7,6 +7,7 @@ import type {
   Chat,
   Statistics,
   UsersResponse,
+  GetUsersParams,
   UpdateUserRoleRequest,
   UserWithRole,
 } from './types';
@@ -85,8 +86,20 @@ class ApiClient {
   }
 
   // User Management (admin/leader only)
-  async getUsers(): Promise<UsersResponse> {
-    const { data } = await this.client.get<UsersResponse>('/auth/users');
+  async getUsers(params?: GetUsersParams): Promise<UsersResponse> {
+    const queryParams = new URLSearchParams();
+    
+    if (params?.page) queryParams.append('page', params.page.toString());
+    if (params?.pageSize) queryParams.append('pageSize', params.pageSize.toString());
+    if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
+    if (params?.sortOrder) queryParams.append('sortOrder', params.sortOrder);
+    if (params?.search) queryParams.append('search', params.search);
+    if (params?.role) queryParams.append('role', params.role);
+
+    const queryString = queryParams.toString();
+    const url = `/auth/users${queryString ? `?${queryString}` : ''}`;
+    
+    const { data } = await this.client.get<UsersResponse>(url);
     return data;
   }
 
