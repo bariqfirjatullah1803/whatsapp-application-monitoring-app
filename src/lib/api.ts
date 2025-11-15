@@ -6,6 +6,9 @@ import type {
   MessageHistory,
   Chat,
   Statistics,
+  UsersResponse,
+  UpdateUserRoleRequest,
+  UserWithRole,
 } from './types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -78,6 +81,22 @@ class ApiClient {
   // Health check
   async healthCheck(): Promise<{ status: string; timestamp: string; mongodb: string }> {
     const { data } = await this.client.get('/health');
+    return data;
+  }
+
+  // User Management (admin/leader only)
+  async getUsers(): Promise<UsersResponse> {
+    const { data } = await this.client.get<UsersResponse>('/auth/users');
+    return data;
+  }
+
+  async updateUserRole(userId: string, role: UpdateUserRoleRequest): Promise<{ message: string; user: UserWithRole }> {
+    const { data } = await this.client.put(`/auth/users/${userId}/role`, role);
+    return data;
+  }
+
+  async registerUser(credentials: RegisterCredentials): Promise<{ message: string; user: UserWithRole }> {
+    const { data } = await this.client.post('/auth/register', credentials);
     return data;
   }
 }

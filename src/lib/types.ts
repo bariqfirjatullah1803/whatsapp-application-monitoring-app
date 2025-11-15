@@ -1,8 +1,17 @@
 // User types
+export type UserRole = 'admin' | 'leader' | 'customer_service';
+
 export interface User {
   id: string;
   email: string;
   name: string;
+  role?: UserRole;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UserWithRole extends User {
+  role: UserRole;
 }
 
 export interface AuthResponse {
@@ -20,6 +29,7 @@ export interface RegisterCredentials {
   email: string;
   password: string;
   name: string;
+  role?: UserRole;
 }
 
 // Message types
@@ -81,5 +91,14 @@ export interface Statistics {
   incomingCount: number;
   outgoingCount: number;
   whatsappConnected: boolean;
+}
+
+// User Management
+export interface UsersResponse {
+  users: UserWithRole[];
+}
+
+export interface UpdateUserRoleRequest {
+  role: UserRole;
 }
 
